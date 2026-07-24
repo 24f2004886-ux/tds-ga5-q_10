@@ -82,29 +82,32 @@ def decide_actions(packages: List[Dict[str, Any]], policy_revision: str) -> List
         {"policyRevision": policy_revision, "packages": packages}, ensure_ascii=False
     )
 
-    resp = requests.post(
-        f"{AIPIPE_BASE_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {AIPIPE_TOKEN}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": AIPIPE_MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            "temperature": 0,
-        },
-        timeout=40,
-    )
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
-
     try:
+        resp = requests.post(
+            f"{AIPIPE_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {AIPIPE_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": AIPIPE_MODEL,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                "temperature": 0,
+            },
+            timeout=40,
+        )
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
         parsed = _extract_json_array(content)
-    except Exception:
-        parsed = [_fallback_decision(pkg) for pkg in packages]
+    except Exception as e:
+        # Network error, bad token, rate limit, malformed response, timeout, etc.
+        # Never let this crash the request - fall back to a safe decision per package
+        # so the protocol layer always gets a 200 response.
+        print(f"[ai.py] AI call failed, using fallback decisions: {e}")
+        parsed = [None for _ in packages]
 
     results = []
     for i, pkg in enumerate(packages):
