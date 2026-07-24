@@ -196,10 +196,23 @@ async def message_send(
     check_headers(a2a_version, content_type, authorization)
     principal = get_principal(authorization)
 
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Malformed JSON body")
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Malformed body")
+
     message = body.get("message")
     configuration = body.get("configuration", {})
-    if not message or "messageId" not in message or "parts" not in message:
+    if (
+        not isinstance(message, dict)
+        or "messageId" not in message
+        or "parts" not in message
+        or not isinstance(message.get("parts"), list)
+        or len(message["parts"]) == 0
+    ):
         raise HTTPException(status_code=400, detail="Malformed message")
 
     message_id = message["messageId"]
@@ -222,13 +235,23 @@ async def message_send(
 
     part = message["parts"][0]
     media_type = part.get("mediaType")
+    data = part.get("data")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Malformed part data")
 
-    if media_type == INPUT_MODE:
-        return handle_new_batch(principal, message, message_id, msg_hash, part["data"])
-    elif media_type == RESULT_MODE:
-        return handle_results(principal, message, message_id, msg_hash, part["data"])
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported part mediaType")
+    try:
+        if media_type == INPUT_MODE:
+            return handle_new_batch(principal, message, message_id, msg_hash, data)
+        elif media_type == RESULT_MODE:
+            return handle_results(principal, message, message_id, msg_hash, data)
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported part mediaType")
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Never let an unexpected bug surface as a bare 500 - treat malformed/
+        # unexpected input as a client error instead of crashing the task store.
+        raise HTTPException(status_code=400, detail=f"Malformed request: {e}")
 
 
 def handle_new_batch(principal, message, message_id, msg_hash, data):
