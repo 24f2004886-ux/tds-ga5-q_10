@@ -57,6 +57,12 @@ VALID_ACTIONS = {
 
 app = FastAPI()
 
+
+def a2a_response(content: Dict[str, Any], status_code: int = 200) -> JSONResponse:
+    """All successful A2A responses (message:send, tasks/{id}, tasks, cancel) must
+    use the application/a2a+json media type on Content-Type."""
+    return JSONResponse(content=content, media_type=MEDIA_TYPE, status_code=status_code)
+
 # --------------------------------------------------------------------------
 # In-memory storage (thread-safe)
 # --------------------------------------------------------------------------
@@ -226,7 +232,7 @@ async def message_send(
                 # Same message replayed (maybe reordered keys / different `configuration`
                 # / concurrent duplicate). Return the same stored task, no new work.
                 task = tasks[existing["task_id"]]
-                return {"task": make_task_snapshot(task)}
+                return a2a_response({"task": make_task_snapshot(task)})
             else:
                 raise HTTPException(
                     status_code=409,
@@ -321,7 +327,7 @@ def handle_new_batch(principal, message, message_id, msg_hash, data):
         principal_tasks.setdefault(principal, set()).add(task_id)
         message_index[(principal, message_id)] = {"hash": msg_hash, "task_id": task_id}
 
-    return {"task": make_task_snapshot(task)}
+    return a2a_response({"task": make_task_snapshot(task)})
 
 
 def handle_results(principal, message, message_id, msg_hash, data):
@@ -384,7 +390,7 @@ def handle_results(principal, message, message_id, msg_hash, data):
 
         message_index[(principal, message_id)] = {"hash": msg_hash, "task_id": task_id}
 
-        return {"task": make_task_snapshot(task)}
+        return a2a_response({"task": make_task_snapshot(task)})
 
 
 # --------------------------------------------------------------------------
@@ -403,7 +409,7 @@ def get_task(
     if task is None or task["principal"] != principal:
         generic_not_found()
 
-    return make_task_snapshot(task)
+    return a2a_response(make_task_snapshot(task))
 
 
 # --------------------------------------------------------------------------
@@ -418,7 +424,7 @@ def list_tasks(
     principal = get_principal(authorization)
 
     ids = principal_tasks.get(principal, set())
-    return {"tasks": [make_task_snapshot(tasks[i]) for i in ids]}
+    return a2a_response({"tasks": [make_task_snapshot(tasks[i]) for i in ids]})
 
 
 # --------------------------------------------------------------------------
@@ -446,4 +452,4 @@ def cancel_task(
             raise HTTPException(status_code=409, detail="Task already terminal")
 
         task["state"] = "TASK_STATE_CANCELED"
-        return make_task_snapshot(task)
+        return a2a_response(make_task_snapshot(task))
